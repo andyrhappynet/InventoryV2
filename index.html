@@ -23,11 +23,11 @@
         .chart-section { background: #f8fafc; border-radius: 20px; padding: 15px; margin-bottom: 30px; }
         .table-section { overflow-x: auto; border-radius: 16px; border: 1px solid #e2e8f0; background: white; }
         table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
-        th { background: #f1f5f9; padding: 12px 8px; text-align: left; font-weight: 700; position: sticky; top: 0; }
+        th { background: #f1f5f9; padding: 12px 8px; text-align: left; font-weight: 700; position: sticky; top: 0; vertical-align: top; }
         td { padding: 10px 8px; border-bottom: 1px solid #e2e8f0; }
         tr:hover { background: #fef9c3; }
-        .filter-input { width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.7rem; margin-top: 5px; box-sizing: border-box; }
-        .filter-input:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.2); }
+        .filter-select { width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.7rem; margin-top: 5px; box-sizing: border-box; background: white; cursor: pointer; }
+        .filter-select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.2); }
         .badge { padding: 4px 8px; border-radius: 20px; font-size: 0.7rem; font-weight: 600; }
         .badge.assigned { background: #dbeafe; color: #1e40af; }
         .badge.instock { background: #dcfce7; color: #166534; }
@@ -35,8 +35,9 @@
         footer { margin-top: 25px; text-align: center; color: #64748b; font-size: 0.7rem; }
         .stats-info { font-size: 0.75rem; color: #64748b; margin-bottom: 15px; text-align: right; }
         .loading { text-align: center; padding: 40px; color: #64748b; }
-        .clear-filters-btn { background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 0.7rem; margin-left: 10px; }
+        .clear-filters-btn { background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 0.7rem; margin-top: 5px; width: 100%; }
         .clear-filters-btn:hover { background: #dc2626; }
+        .filter-label { font-weight: 700; margin-bottom: 5px; font-size: 0.7rem; color: #475569; }
     </style>
 </head>
 <body>
@@ -56,17 +57,17 @@
         <div class="kpi-card total-items"><div class="kpi-label">📦 Total Assets</div><div class="kpi-value" id="total-items-val">0</div></div>
     </div>
 
-    <div class="chart-section"><div id="chart-category" style="width: 100%; height: 380px;"></div></div>
+    <div class="chart-section"><div id="chart-status" style="width: 100%; height: 380px;"></div></div>
 
     <div class="table-section">
         <table id="inventory-table">
             <thead id="table-header">
-                <!-- Dynamic header with search inputs will be inserted here -->
+                <!-- Dynamic header with dropdown filters will be inserted here -->
             </thead>
             <tbody id="table-body"><tr><td colspan="7" class="loading">⏳ Loading data from Google Sheets...</td></tr></tbody>
         </table>
     </div>
-    <footer>Source: Google Sheets (live data) | Type in any column to filter the table</footer>
+    <footer>Source: Google Sheets (live data) | Use dropdowns to filter each column</footer>
 </div>
 
 <script>
@@ -84,6 +85,17 @@
         company: '',
         purchaseDate: '',
         purchaseCost: ''
+    };
+    
+    // Store unique values for each column to populate dropdowns
+    let uniqueValues = {
+        assetTag: [],
+        model: [],
+        category: [],
+        status: [],
+        company: [],
+        purchaseDate: [],
+        purchaseCost: []
     };
     
     async function loadData() {
@@ -126,6 +138,17 @@
             if (clean === 'Purchase Cost') colIdx.purchaseCost = i;
         });
         
+        // Collect unique values for dropdowns
+        const tempUnique = {
+            assetTag: new Set(),
+            model: new Set(),
+            category: new Set(),
+            status: new Set(),
+            company: new Set(),
+            purchaseDate: new Set(),
+            purchaseCost: new Set()
+        };
+        
         for (let i = 1; i < lines.length; i++) {
             if (lines[i].trim() === '') continue;
             const fields = parseCSVLine(lines[i]);
@@ -151,18 +174,39 @@
             
             let category = (colIdx.category >= 0 && fields[colIdx.category]) ? fields[colIdx.category].replace(/^"|"$/g, '').trim() : 'Uncategorized';
             
-            if (colIdx.assetTag >= 0 && fields[colIdx.assetTag]) {
+            let assetTag = (colIdx.assetTag >= 0 && fields[colIdx.assetTag]) ? fields[colIdx.assetTag].replace(/^"|"$/g, '') : '';
+            let model = (colIdx.model >= 0 && fields[colIdx.model]) ? fields[colIdx.model].replace(/^"|"$/g, '').substring(0, 45) : '—';
+            
+            if (assetTag) {
                 rows.push({
-                    assetTag: fields[colIdx.assetTag].replace(/^"|"$/g, ''),
-                    model: (colIdx.model >= 0 && fields[colIdx.model]) ? fields[colIdx.model].replace(/^"|"$/g, '').substring(0, 45) : '—',
+                    assetTag: assetTag,
+                    model: model,
                     category: category,
                     status: status,
                     company: company,
                     purchaseDate: rawDate,
                     purchaseCost: purchaseCost
                 });
+                
+                // Add to unique sets
+                tempUnique.assetTag.add(assetTag);
+                tempUnique.model.add(model);
+                tempUnique.category.add(category);
+                tempUnique.status.add(status);
+                tempUnique.company.add(company);
+                tempUnique.purchaseDate.add(rawDate);
+                tempUnique.purchaseCost.add(purchaseCost.toString());
             }
         }
+        
+        // Convert sets to sorted arrays
+        uniqueValues.assetTag = Array.from(tempUnique.assetTag).sort();
+        uniqueValues.model = Array.from(tempUnique.model).sort();
+        uniqueValues.category = Array.from(tempUnique.category).sort();
+        uniqueValues.status = Array.from(tempUnique.status).sort();
+        uniqueValues.company = Array.from(tempUnique.company).sort();
+        uniqueValues.purchaseDate = Array.from(tempUnique.purchaseDate).sort();
+        uniqueValues.purchaseCost = Array.from(tempUnique.purchaseCost).sort((a,b) => parseFloat(a) - parseFloat(b));
         
         inventoryData = rows;
         renderStatusFilters();
@@ -213,13 +257,13 @@
     
     function renderTableHeader() {
         const columns = [
-            { key: 'assetTag', label: 'Asset Tag' },
-            { key: 'model', label: 'Model' },
-            { key: 'category', label: 'Category' },
-            { key: 'status', label: 'Status' },
-            { key: 'company', label: 'Company' },
-            { key: 'purchaseDate', label: 'Purchase Date' },
-            { key: 'purchaseCost', label: 'Purchase Cost (USD)' }
+            { key: 'assetTag', label: 'Asset Tag', values: uniqueValues.assetTag },
+            { key: 'model', label: 'Model', values: uniqueValues.model },
+            { key: 'category', label: 'Category', values: uniqueValues.category },
+            { key: 'status', label: 'Status', values: uniqueValues.status },
+            { key: 'company', label: 'Company', values: uniqueValues.company },
+            { key: 'purchaseDate', label: 'Purchase Date', values: uniqueValues.purchaseDate },
+            { key: 'purchaseCost', label: 'Purchase Cost (USD)', values: uniqueValues.purchaseCost }
         ];
         
         const thead = document.getElementById('table-header');
@@ -227,36 +271,51 @@
         
         const headerRow = document.createElement('tr');
         
-        // Create column headers with filter inputs
         columns.forEach(col => {
             const th = document.createElement('th');
             th.style.verticalAlign = 'top';
-            th.style.minWidth = '120px';
+            th.style.minWidth = '130px';
             
             const label = document.createElement('div');
             label.textContent = col.label;
             label.style.fontWeight = '700';
             label.style.marginBottom = '8px';
+            label.style.fontSize = '0.75rem';
             
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.placeholder = `Filter ${col.label}...`;
-            input.className = 'filter-input';
-            input.value = columnFilters[col.key] || '';
-            input.addEventListener('input', (e) => {
-                columnFilters[col.key] = e.target.value.toLowerCase();
+            const select = document.createElement('select');
+            select.className = 'filter-select';
+            
+            // Add "All" option
+            const allOption = document.createElement('option');
+            allOption.value = '';
+            allOption.textContent = '-- All --';
+            select.appendChild(allOption);
+            
+            // Add unique values
+            col.values.forEach(value => {
+                const option = document.createElement('option');
+                option.value = value;
+                option.textContent = value.length > 30 ? value.substring(0, 27) + '...' : value;
+                select.appendChild(option);
+            });
+            
+            select.value = columnFilters[col.key] || '';
+            select.addEventListener('change', (e) => {
+                columnFilters[col.key] = e.target.value;
                 refreshDisplay();
             });
             
             th.appendChild(label);
-            th.appendChild(input);
+            th.appendChild(select);
             headerRow.appendChild(th);
         });
         
-        // Add clear filters button column
+        // Add clear filters column
         const thAction = document.createElement('th');
         thAction.style.verticalAlign = 'top';
         thAction.style.textAlign = 'center';
+        thAction.style.minWidth = '100px';
+        
         const clearBtn = document.createElement('button');
         clearBtn.textContent = 'Clear All Filters';
         clearBtn.className = 'clear-filters-btn';
@@ -264,9 +323,9 @@
             for (let key in columnFilters) {
                 columnFilters[key] = '';
             }
-            // Clear all input values in the header
-            document.querySelectorAll('.filter-input').forEach(input => {
-                input.value = '';
+            // Reset all select dropdowns
+            document.querySelectorAll('.filter-select').forEach(select => {
+                select.value = '';
             });
             refreshDisplay();
         };
@@ -284,29 +343,25 @@
     }
     
     function refreshDisplay() {
-        // Apply status filter
+        // Apply status filter (buttons)
         let filtered = inventoryData;
         if (currentStatus !== 'All') {
             filtered = filtered.filter(item => item.status === currentStatus);
         }
         
-        // Apply column text filters
+        // Apply column dropdown filters
         filtered = filtered.filter(item => {
-            // Check each column filter
-            if (columnFilters.assetTag && !item.assetTag.toLowerCase().includes(columnFilters.assetTag)) return false;
-            if (columnFilters.model && !item.model.toLowerCase().includes(columnFilters.model)) return false;
-            if (columnFilters.category && !item.category.toLowerCase().includes(columnFilters.category)) return false;
-            if (columnFilters.status && !item.status.toLowerCase().includes(columnFilters.status)) return false;
-            if (columnFilters.company && !item.company.toLowerCase().includes(columnFilters.company)) return false;
-            if (columnFilters.purchaseDate && !item.purchaseDate.toLowerCase().includes(columnFilters.purchaseDate)) return false;
-            if (columnFilters.purchaseCost) {
-                const costStr = item.purchaseCost.toString();
-                if (!costStr.includes(columnFilters.purchaseCost)) return false;
-            }
+            if (columnFilters.assetTag && item.assetTag !== columnFilters.assetTag) return false;
+            if (columnFilters.model && item.model !== columnFilters.model) return false;
+            if (columnFilters.category && item.category !== columnFilters.category) return false;
+            if (columnFilters.status && item.status !== columnFilters.status) return false;
+            if (columnFilters.company && item.company !== columnFilters.company) return false;
+            if (columnFilters.purchaseDate && item.purchaseDate !== columnFilters.purchaseDate) return false;
+            if (columnFilters.purchaseCost && item.purchaseCost.toString() !== columnFilters.purchaseCost) return false;
             return true;
         });
         
-        // Update button styles
+        // Update status button styles
         document.querySelectorAll('#status-filters .filter-btn').forEach(btn => {
             if ((currentStatus === 'All' && btn.dataset.status === 'All') || btn.dataset.status === currentStatus) {
                 btn.classList.add('active');
@@ -340,33 +395,34 @@
             `).join('');
         }
         
-        // Update chart: Group by category
-        const categoryMap = new Map();
+        // CHART: Cost by Status
+        const statusMap = new Map();
         filtered.forEach(item => {
-            const cat = item.category;
+            const statusName = item.status;
             const cost = item.purchaseCost;
-            categoryMap.set(cat, (categoryMap.get(cat) || 0) + cost);
+            statusMap.set(statusName, (statusMap.get(statusName) || 0) + cost);
         });
         
-        const chartData = [['Category', 'Accumulated Cost (USD)', { role: 'annotation', type: 'string' }]];
-        for (let [cat, cost] of categoryMap.entries()) {
-            chartData.push([cat, cost, `$${cost.toFixed(2)}`]);
+        const chartData = [['Status', 'Accumulated Cost (USD)', { role: 'annotation', type: 'string' }]];
+        for (let [statusName, cost] of statusMap.entries()) {
+            chartData.push([statusName, cost, `$${cost.toFixed(2)}`]);
         }
         
         const dataTable = google.visualization.arrayToDataTable(chartData);
+        
         const options = {
-            title: `💰 Cost by Category (Total: $${totalCost.toFixed(2)}) | Status: ${currentStatus}`,
+            title: `💰 Purchase Cost by Status (Total: $${totalCost.toFixed(2)})`,
             backgroundColor: '#f8fafc',
-            colors: ['#3b82f6'],
+            colors: ['#3b82f6', '#10b981', '#ef4444', '#f59e0b', '#8b5cf6'],
             legend: { position: 'top' },
             bar: { groupWidth: '65%' },
             chartArea: { width: '65%', height: '70%' },
-            annotations: { alwaysOutside: true, textStyle: { fontSize: 10, color: '#1e293b', bold: true } },
+            annotations: { alwaysOutside: true, textStyle: { fontSize: 11, color: '#1e293b', bold: true } },
             vAxis: { title: 'Cost (USD)', format: 'currency', minValue: 0 },
-            hAxis: { title: 'Category', slantedText: true, slantedTextAngle: 30 }
+            hAxis: { title: 'Status', slantedText: true, slantedTextAngle: 0 }
         };
         
-        const chart = new google.visualization.BarChart(document.getElementById('chart-category'));
+        const chart = new google.visualization.BarChart(document.getElementById('chart-status'));
         chart.draw(dataTable, options);
     }
     
