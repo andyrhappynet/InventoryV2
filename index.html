@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IT Inventory Dashboard</title>
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <style>
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background: #f0f2f5; margin: 0; padding: 20px; }
+        .dashboard-container { max-width: 1400px; margin: 0 auto; background: white; border-radius: 20px; box-shadow: 0 8px 20px rgba(0,0,0,0.1); padding: 20px; }
+        h1 { margin-top: 0; color: #1e3a8a; font-size: 1.8rem; border-left: 6px solid #3b82f6; padding-left: 15px; }
+        .filter-group { margin-bottom: 15px; }
+        .filter-btn { background: #f1f5f9; border: none; padding: 8px 16px; border-radius: 40px; font-weight: 500; cursor: pointer; margin: 0 4px 8px 0; }
+        .filter-btn.active { background: #3b82f6; color: white; }
+        .kpi-row { display: flex; gap: 20px; margin-bottom: 30px; flex-wrap: wrap; }
+        .kpi-card { background: linear-gradient(135deg, #1e293b, #0f172a); color: white; flex: 1; min-width: 180px; border-radius: 20px; padding: 20px; }
+        .kpi-card.total-cost { background: linear-gradient(135deg, #065f46, #047857); }
+        .kpi-card.total-items { background: linear-gradient(135deg, #1e40af, #2563eb); }
+        .kpi-label { font-size: 0.8rem; text-transform: uppercase; opacity: 0.8; }
+        .kpi-value { font-size: 2rem; font-weight: 800; margin-top: 8px; }
+        .chart-section { background: #f8fafc; border-radius: 20px; padding: 15px; margin-bottom: 30px; }
+        .table-section { overflow-x: auto; border-radius: 16px; border: 1px solid #e2e8f0; background: white; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+        th { background: #f1f5f9; padding: 12px 8px; text-align: left; font-weight: 700; }
+        td { padding: 10px 8px; border-bottom: 1px solid #e2e8f0; }
+        tr:hover { background: #fef9c3; }
+        .badge { padding: 4px 8px; border-radius: 20px; font-size: 0.7rem; font-weight: 600; }
+        .badge.assigned { background: #dbeafe; color: #1e40af; }
+        .badge.instock { background: #dcfce7; color: #166534; }
+        .badge.broken { background: #fee2e2; color: #991b1b; }
+        footer { margin-top: 25px; text-align: center; color: #64748b; font-size: 0.7rem; }
+        .stats-info { font-size: 0.75rem; color: #64748b; margin-bottom: 15px; text-align: right; }
+        .loading { text-align: center; padding: 40px; color: #64748b; }
+    </style>
+</head>
+<body>
+<div class="dashboard-container">
+    <h1>📊 IT Inventory Dashboard</h1>
+    <div class="stats-info" id="stats-info">Connecting to Google Sheets...</div>
+
+    <div class="filter-group">
+        <label>🔘 Status:</label>
+        <div id="status-filters"></div>
+    </div>
+    <div class="filter-group">
+        <label>🏢 Company:</label>
+        <div id="company-filters"></div>
+    </div>
+
+    <div class="kpi-row">
+        <div class="kpi-card total-cost"><div class="kpi-label">💰 Total Purchase Cost</div><div class="kpi-value" id="total-cost-val">$0</div></div>
+        <div class="kpi-card total-items"><div class="kpi-label">📦 Total Assets</div><div class="kpi-value" id="total-items-val">0</div></div>
+    </div>
+
+    <div class="chart-section"><div id="chart-category" style="width: 100%; height: 380px;"></div></div>
+
+    <div class="table-section">
+        <table><thead><tr><th>Asset Tag</th><th>Model</th><th>Category</th><th>Status</th><th>Company</th><th>Purchase Date</th><th>Purchase Cost (USD)</th></tr></thead>
+        <tbody id="table-body"><tr><td colspan="7" class="loading">⏳ Loading data from Google Sheets...</td></tr></tbody></table>
+    </div>
+    <footer>Source: Google Sheets (live data) | Auto-refreshes on page reload</footer>
+</div>
+
+<script>
+    google.charts.load('current', { packages: ['corechart'] });
+    const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQOC100h043T7jDlGk5HopKQWiD7rYW3uz8Fszn5rq-LiRYUV2gA0unvIsdh8ixU4OZaB1SmAT9_BOh/pub?gid=0&single=true&output=csv";
+    
+    let inventoryData = [], currentStatus = "All", currentCompany = "All";
+    
+    async function loadData() {
+        document.getElementById('table-body').innerHTML = '<tr><td colspan="7" class="loading">⏳ Loading data...</td></tr>';
+        try {
+            const response = await fetch(CSV_URL);
+            if (!response.ok) throw new Error('Network error');
+            const csvText = await response.text();
+            parseCSV(csvText);
+        } catch (error) {
+            document.getElementById('table-body').innerHTML = `<tr><td colspan="7" class="loading">❌ Error: ${error.message}</td></tr>`;
+        }
+    }
+    
+    function parseCSV(csvText) {
+        const rows = [], lines = csvText.split(/\r?\n/);
+        if (lines.length < 2) return;
+        const headers = lines[0].split(',');
+        const colIdx = { tag: -1, model: -1, cat: -1, status: -1, company: -1, date: -1, cost: -1 };
+        headers.forEach((h, i) => {
+            let clean = h.replace(/"/g, '').trim();
+            if (clean === 'Asset Tag') colIdx.tag = i;
+            if (clean === 'Model') colIdx.model = i;
+            if (clean === 'Category') colIdx.cat = i;
+            if (clean === 'Status') colIdx.status = i;
+            if (clean === 'Company') colIdx.company = i;
+            if (clean === 'Purchase Date') colIdx.date = i;
+            if (clean === 'Purchase Cost') colIdx.cost = i;
+        });
+        for (let i = 1; i < lines.length; i++) {
+            let fields = lines[i].split(',');
+            if (fields.length < 2) continue;
+            let status = fields[colIdx.status]?.replace(/"/g, '')?.trim() || '';
+            if (status === 'Ready to Deploy Deployed') status = 'Assigned';
+            if (status === 'Ready to Deploy') status = 'In Stock';
+            if (status === 'Pending') status = 'Broken/Damaged';
+            rows.push({
+                assetTag: fields[colIdx.tag]?.replace(/"/g, '') || '',
+                model: fields[colIdx.model]?.replace(/"/g, '') || '',
+                category: fields[colIdx.cat]?.replace(/"/g, '') || '',
+                status: status,
+                company: fields[colIdx.company]?.replace(/"/g, '') || fields[colIdx.company] || '—',
+                purchaseDate: fields[colIdx.date]?.replace(/"/g, '')?.split(' ')[0] || '—',
+                purchaseCost: parseFloat(fields[colIdx.cost]?.replace(/"/g, '')) || 0
+            });
+        }
+        inventoryData = rows;
+        renderFilters();
+        refresh();
+        document.getElementById('stats-info').innerHTML = `✅ Loaded ${inventoryData.length} assets | ${new Date().toLocaleString()}`;
+    }
+    
+    function renderFilters() {
+        const statusDiv = document.getElementById('status-filters'), companyDiv = document.getElementById('company-filters');
+        const statuses = [...new Set(inventoryData.map(i => i.status))].sort();
+        const companies = [...new Set(inventoryData.map(i => i.company))].sort();
+        statusDiv.innerHTML = '<button class="filter-btn" data-status="All">All</button>';
+        companies.forEach(c => {});
+        statuses.forEach(s => { statusDiv.innerHTML += `<button class="filter-btn" data-status="${s}">${s}</button>`; });
+        companyDiv.innerHTML = '<button class="filter-btn" data-company="All">All Companies</button>';
+        companies.forEach(c => { companyDiv.innerHTML += `<button class="filter-btn" data-company="${c}">${c}</button>`; });
+        document.querySelectorAll('#status-filters .filter-btn').forEach(btn => btn.onclick = () => { currentStatus = btn.dataset.status; refresh(); });
+        document.querySelectorAll('#company-filters .filter-btn').forEach(btn => btn.onclick = () => { currentCompany = btn.dataset.company; refresh(); });
+    }
+    
+    function refresh() {
+        let filtered = inventoryData.filter(i => (currentStatus === 'All' || i.status === currentStatus) && (currentCompany === 'All' || i.company === currentCompany));
+        const totalCost = filtered.reduce((s,i) => s + i.purchaseCost, 0);
+        document.getElementById('total-cost-val').innerHTML = `$${totalCost.toLocaleString()}`;
+        document.getElementById('total-items-val').innerText = filtered.length;
+        document.getElementById('table-body').innerHTML = filtered.map(i => `<tr><td>${i.assetTag}</td><td>${i.model.substring(0,45)}</td><td>${i.category}</td><td><span class="badge ${i.status === 'Assigned' ? 'assigned' : i.status === 'In Stock' ? 'instock' : 'broken'}">${i.status}</span></td><td>${i.company}</td><td>${i.purchaseDate}</td><td>$${i.purchaseCost.toFixed(2)}</td></tr>`).join('');
+        const catMap = new Map();
+        filtered.forEach(i => catMap.set(i.category, (catMap.get(i.category)||0) + i.purchaseCost));
+        const chartData = [['Category', 'Cost', { role: 'annotation' }]];
+        for (let [cat, cost] of catMap) chartData.push([cat, cost, `$${cost.toFixed(2)}`]);
+        const chart = new google.visualization.BarChart(document.getElementById('chart-category'));
+        chart.draw(google.visualization.arrayToDataTable(chartData), { title: `Cost by Category - Total: $${totalCost.toFixed(2)}`, annotations: { alwaysOutside: true }, vAxis: { title: 'Cost (USD)' }, colors: ['#3b82f6'] });
+    }
+    
+    loadData();
+</script>
+</body>
+</html>
